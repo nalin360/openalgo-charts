@@ -63,6 +63,8 @@ export interface PriceScaleOptions {
   mode: PriceScaleMode;
   /** Flip the axis (price increases downward): for spread/short views. */
   inverted: boolean;
+  /** Nominal pixel height per price label (default: 32). Lower = more labels / finer division. */
+  labelSpacing?: number;
 }
 
 export const DEFAULT_PRICE_SCALE_OPTIONS: PriceScaleOptions = {
@@ -506,9 +508,13 @@ export class PriceScale {
    * values are chosen over the transformed range and mapped back to the prices
    * the axis positions with.
    */
-  public ticks(maxTicks = 6): number[] {
-    if (this._rebase() === null) return niceTicks(this._min, this._max, maxTicks);
-    return niceTicks(this._t(this._min), this._t(this._max), maxTicks).map((v) => this._tInv(v));
+  public ticks(maxTicks?: number): number[] {
+    const spacing = this._options.labelSpacing ?? 32;
+    const count = maxTicks ?? (this._height > 0
+      ? Math.max(2, Math.min(30, Math.round(this._height / spacing)))
+      : 6);
+    if (this._rebase() === null) return niceTicks(this._min, this._max, count);
+    return niceTicks(this._t(this._min), this._t(this._max), count).map((v) => this._tInv(v));
   }
 
   /** Snap a price to the instrument tick size (no-op if minMove is 0). */

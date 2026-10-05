@@ -98,9 +98,10 @@ export const AXIS_TAG_HEIGHT = 16;
 const PRICE_LABEL_SPACING = 32;
 
 /** Labels that fit in `plotHeight`, clamped so a tiny pane still shows a ladder. */
-export function priceTickCount(plotHeight: number): number {
+export function priceTickCount(plotHeight: number, labelSpacing = PRICE_LABEL_SPACING): number {
   if (!Number.isFinite(plotHeight) || plotHeight <= 0) return 2;
-  return Math.max(2, Math.min(30, Math.round(plotHeight / PRICE_LABEL_SPACING)));
+  const spacing = Math.max(16, Math.min(100, labelSpacing));
+  return Math.max(2, Math.min(30, Math.round(plotHeight / spacing)));
 }
 
 /** Height of the last-price tag once the countdown adds its second row. */
@@ -251,7 +252,8 @@ export function drawPriceAxis(
   // The scale owns the ladder: in the rebasing modes a nice price is an ugly
   // percentage, so the values have to be chosen in label space (see
   // `PriceScale.ticks`). Linear and log get the same ladder as before.
-  const ticks = priceScale.ticks(priceTickCount(layout.plotHeight));
+  const spacing = priceScale.options.labelSpacing ?? PRICE_LABEL_SPACING;
+  const ticks = priceScale.ticks(priceTickCount(layout.plotHeight, spacing));
   const keep = survivingTicks(ticks, priceScale, dpr, reserved);
   const left = side === 'left';
   const edge = Math.round((left ? layout.plotLeft : layout.plotWidth) * dpr);
