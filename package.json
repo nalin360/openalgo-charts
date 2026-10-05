@@ -1,13 +1,13 @@
 {
-  "name": "@nalin360/openalgo-charts",
+  "name": "@nalin360/wealtharena-charts",
   "version": "2.6.1",
   "description": "From-scratch, dependency-free canvas charting engine for OpenAlgo: professional-grade interactive rendering, advanced on-chart trading, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.",
   "license": "Apache-2.0",
   "author": "marketcalls",
-  "homepage": "https://github.com/marketcalls/openalgo-charts#readme",
+  "homepage": "https://github.com/nalin360/openalgo-charts#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/marketcalls/openalgo-charts.git"
+    "url": "git+https://github.com/nalin360/openalgo-charts.git"
   },
   "bugs": {
     "url": "https://github.com/marketcalls/openalgo-charts/issues"
