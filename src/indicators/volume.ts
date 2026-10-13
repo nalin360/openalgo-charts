@@ -14,7 +14,7 @@ export const VOLUME: IndicatorDescriptor = {
   id: 'volume',
   name: 'Volume',
   category: 'Volume',
-  placement: 'pane',
+  placement: 'onchart',
   inputs: [
     { key: 'color', type: 'color', label: 'Color', default: '#3a4666' },
     { key: 'colorByDirection', type: 'boolean', label: 'Match candle direction', default: false },
@@ -26,13 +26,27 @@ export const VOLUME: IndicatorDescriptor = {
   ],
   plots: [
     {
-      key: 'volume', type: 'histogram', title: 'Volume', colorKey: 'color', style: { base: 0 },
+      key: 'volume',
+      type: 'histogram',
+      title: 'Volume',
+      colorKey: 'color',
+      priceScaleId: '',
+      priceFormat: { type: 'volume' },
+      style: { base: 0 },
       // `calc` below always writes `direction`.
       colorBy: ({ index, values, settings }) => settings.colorByDirection === true
         ? values.direction![index] === -1 ? str(settings, 'downColor', '#ef5350') : str(settings, 'upColor', '#26a69a')
         : undefined,
     },
-    { key: 'ma', type: 'line', title: 'Volume average', colorKey: 'maColor', style: { lineWidth: 1.5 } },
+    {
+      key: 'ma',
+      type: 'line',
+      title: 'Volume average',
+      colorKey: 'maColor',
+      priceScaleId: '',
+      priceFormat: { type: 'volume' },
+      style: { lineWidth: 1.5 },
+    },
   ],
   calc: (bars, settings) => {
     const volume = bars.map(b => b.volume ?? 0);

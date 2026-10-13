@@ -59,6 +59,7 @@ export interface AppearanceHost {
   setStatusLineOptions: Chart['setStatusLineOptions'];
   setLegendIconSize: Chart['setLegendIconSize'];
   setPriceScaleOptions: Chart['setPriceScaleOptions'];
+  timeScale: Chart['timeScale'];
   setPriceFormatter: Chart['setPriceFormatter'];
   setTimeFormatter: Chart['setTimeFormatter'];
   setTimezone: Chart['setTimezone'];
@@ -231,6 +232,7 @@ export class ChartAppearance {
       if (opts.statusLine) this._host.setStatusLineOptions(opts.statusLine);
       if (opts.legendIconSize !== undefined) this._host.setLegendIconSize(opts.legendIconSize);
       if (opts.priceScale) this._host.setPriceScaleOptions(opts.priceScale);
+      if (opts.timeScale) this._host.timeScale.applyOptions(opts.timeScale);
       if (opts.priceFormatter !== undefined) this._host.setPriceFormatter(opts.priceFormatter);
       if ('timeFormatter' in opts) this._host.setTimeFormatter(opts.timeFormatter);
       if (opts.timezone !== undefined) this._host.setTimezone(opts.timezone);

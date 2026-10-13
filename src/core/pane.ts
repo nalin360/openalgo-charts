@@ -1399,7 +1399,7 @@ export class Pane {
       // date/time tag on the bottom pane's axis strip (cross.x is plot-relative)
       if (showTags && cross.showTimeTag && cross.x >= 0 && cross.x <= layout.plotWidth) {
         const idx = Math.round(ctx.timeScale.xToIndex(cross.x));
-        const t = ctx.dataLayer.indexToTime(idx);
+        const t = ctx.dataLayer.indexToTime(idx) ?? (ctx.dataLayer.length > 0 && ctx.timeScale.futureDates !== false && Number.isFinite(ctx.dataLayer.indexToTimeFloat(idx)) ? Math.round(ctx.dataLayer.indexToTimeFloat(idx)) : undefined);
         if (t !== undefined) {
           const label = ctx.timeFormatter
             ? ctx.timeFormatter(t)

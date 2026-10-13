@@ -17,7 +17,7 @@ import { contrastText } from './pill';
 import {
   DEFAULT_TIMEZONE, IST_OFFSET_SECONDS, formatIstDate, formatIstTime, formatIstTimeSeconds,
   formatZonedDate, formatZonedTime, formatZonedTimeSeconds, isNewZonedDay,
-  isNewZonedMonth, isNewZonedYear, isValidTimezone, utcSecondsToIstParts, zoneOffsetSeconds,
+  isNewZonedMonth, isNewZonedYear, isValidTimezone, utcSecondsToIstParts, utcSecondsToZonedParts, zoneOffsetSeconds,
 } from '../feed/time';
 import { roundRectPath } from './pill';
 
@@ -341,6 +341,191 @@ function istDayCount(utcSeconds: number): number {
  * a `tickMark` hint computed on the same zone, so a host formatter and a default
  * one agree on where the day turns over.
  */
+/** Detect the smallest bar interval in seconds from visible data. */
+function detectBarIntervalSec(dataLayer: DataLayer, from: number, to: number): number {
+  const dataTo = Math.min(dataLayer.baseIndex, to);
+  let barIntervalSec = Number.POSITIVE_INFINITY;
+  let prev = timeForIndex(dataLayer, from);
+  let within = Number.POSITIVE_INFINITY;
+  for (let i = from + 1; i <= dataTo; i++) {
+    const t = timeForIndex(dataLayer, i);
+    if (t !== undefined && prev !== undefined) {
+      const d = t - prev;
+      if (d > 0 && Math.floor(t / 60) !== Math.floor(prev / 60)) barIntervalSec = Math.min(barIntervalSec, d);
+      else if (d > 0) within = Math.min(within, d);
+    }
+    if (t !== undefined) prev = t;
+  }
+  if (!Number.isFinite(barIntervalSec)) barIntervalSec = within;
+  if (!Number.isFinite(barIntervalSec) && dataLayer.length > 0) {
+    const step = Math.abs(dataLayer.indexToTimeFloat(dataLayer.baseIndex + 1) - dataLayer.indexToTimeFloat(dataLayer.baseIndex));
+    if (Number.isFinite(step) && step > 0) barIntervalSec = step;
+  }
+  return barIntervalSec;
+}
+
+interface TimeAxisMark {
+  index: number;
+  priority: number;
+  boundary: boolean;
+}
+
+const AXIS_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Collect candidate ticks across the visible range.
+ * Intraday timeframes generate clean clock marks (noon and round hours)
+ * instead of arbitrary bar index offsets.
+ */
+function collectHierarchicalMarks(
+  dataLayer: DataLayer,
+  from: number,
+  to: number,
+  barSpacing: number,
+  barIntervalSec: number,
+  zone: string,
+  defaultZone: boolean,
+  isNewDay: (prev: number, curr: number) => boolean,
+  subMinute: boolean,
+  timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string,
+): { marks: TimeAxisMark[]; boundaries: Set<number>; useHierarchical: boolean } {
+  const boundaries = new Set<number>();
+  if (from === 0) {
+    boundaries.add(0);
+  } else {
+    const prevBefore = timeForIndex(dataLayer, from - 1);
+    const currAtFrom = timeForIndex(dataLayer, from);
+    if (prevBefore !== undefined && currAtFrom !== undefined && isNewDay(prevBefore, currAtFrom)) {
+      boundaries.add(from);
+    }
+  }
+  let prev = timeForIndex(dataLayer, from);
+  for (let i = from + 1; i <= to; i++) {
+    const t = timeForIndex(dataLayer, i);
+    if (t === undefined) continue;
+    if (prev !== undefined && isNewDay(prev, t)) boundaries.add(i);
+    prev = t;
+  }
+
+  const isIntraday = barIntervalSec >= 60 && barIntervalSec < 20 * 3600;
+  const multiDay = boundaries.size >= 2;
+  const useHierarchical = timeFormatter === undefined
+    && isIntraday
+    && multiDay
+    && dataLayer.sessionCalendar !== null;
+
+  if (!useHierarchical) {
+    const stride = Math.max(1, Math.round(80 / Math.max(1, barSpacing)));
+    const out: TimeAxisMark[] = [];
+    const seen = new Set<number>();
+    for (const b of boundaries) {
+      seen.add(b);
+      out.push({ index: b, priority: 100, boundary: true });
+    }
+    for (let i = from; i <= to; i += stride) {
+      if (!seen.has(i)) {
+        seen.add(i);
+        out.push({ index: i, priority: 10, boundary: false });
+      }
+    }
+    return { marks: out, boundaries, useHierarchical: false };
+  }
+
+  const bList = [...boundaries].sort((a, b) => a - b);
+  const avgBarsPerDay = (bList[bList.length - 1]! - bList[0]!) / (bList.length - 1);
+  const pixelsPerDay = avgBarsPerDay * barSpacing;
+
+  const marks: TimeAxisMark[] = [];
+  const seen = new Set<number>();
+
+  for (const b of boundaries) {
+    seen.add(b);
+    marks.push({ index: b, priority: 100, boundary: true });
+  }
+
+  if (pixelsPerDay >= 180) {
+    for (let i = from; i <= to; i++) {
+      if (seen.has(i)) continue;
+      const t = timeForIndex(dataLayer, i);
+      if (t === undefined) continue;
+      const p = defaultZone ? utcSecondsToIstParts(t) : utcSecondsToZonedParts(t, zone);
+      if (p.second !== 0 && !subMinute) continue;
+
+      if (p.minute === 0 && p.hour === 12) {
+        seen.add(i);
+        marks.push({ index: i, priority: 70, boundary: false });
+      } else if (pixelsPerDay >= 360 && p.minute === 0 && p.hour % 2 === 0) {
+        seen.add(i);
+        marks.push({ index: i, priority: 50, boundary: false });
+      } else if (pixelsPerDay >= 600 && p.minute === 0 && p.hour % 2 !== 0) {
+        seen.add(i);
+        marks.push({ index: i, priority: 30, boundary: false });
+      } else if (pixelsPerDay >= 1000 && p.minute === 30) {
+        seen.add(i);
+        marks.push({ index: i, priority: 20, boundary: false });
+      } else if (pixelsPerDay >= 1600 && p.minute % 15 === 0) {
+        seen.add(i);
+        marks.push({ index: i, priority: 10, boundary: false });
+      }
+    }
+  }
+
+  if (marks.length === 0) {
+    const stride = Math.max(1, Math.round(80 / Math.max(1, barSpacing)));
+    for (let i = from; i <= to; i += stride) {
+      marks.push({ index: i, priority: 10, boundary: false });
+    }
+  }
+
+  return { marks, boundaries, useHierarchical: true };
+}
+
+/** Format a time-axis label with hierarchical dates for multi-day intraday views. */
+function formatAxisLabel(
+  time: number,
+  boundary: boolean,
+  prevBoundaryTime: number | undefined,
+  prevTime: number | undefined,
+  zone: string,
+  defaultZone: boolean,
+  subMinute: boolean,
+  useHierarchical: boolean,
+  dateLabel: (t: number) => string,
+  timeLabel: (t: number) => string,
+  secondsLabel: (t: number) => string,
+  timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string,
+): string {
+  if (timeFormatter) {
+    const tm = prevTime === undefined
+      ? 'day'
+      : tickMarkBetween(prevTime, time, zone, subMinute);
+    return timeFormatter(time, tm);
+  }
+
+  if (prevTime === undefined || boundary) {
+    if (!useHierarchical) {
+      return dateLabel(time);
+    }
+    const p = defaultZone ? utcSecondsToIstParts(time) : utcSecondsToZonedParts(time, zone);
+    if (prevBoundaryTime !== undefined) {
+      const prevP = defaultZone ? utcSecondsToIstParts(prevBoundaryTime) : utcSecondsToZonedParts(prevBoundaryTime, zone);
+      if (prevP.year !== p.year) return String(p.year);
+      if (prevP.month !== p.month) return AXIS_MONTHS[p.month - 1]!;
+      return String(p.day);
+    }
+    return p.day === 1 ? AXIS_MONTHS[p.month - 1]! : String(p.day);
+  }
+
+  return subMinute ? secondsLabel(time) : timeLabel(time);
+}
+
+/**
+ * Draw time tick labels along the bottom axis strip (bitmap scope).
+ *
+ * timezone is the IANA zone the labels read in; absent means the shipped
+ * default. A custom timeFormatter still owns the label text, but it is handed
+ * a tickMark hint computed on the same zone.
+ */
 export function drawTimeAxis(
   ctx: CanvasRenderingContext2D,
   timeScale: TimeScale,
@@ -351,52 +536,21 @@ export function drawTimeAxis(
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string,
   timezone?: string,
 ): void {
+  if (dataLayer.length === 0 || dataLayer.baseIndex < 0) return;
   const range = timeScale.visibleRange();
   const from = Math.max(0, Math.floor(range.from));
-  const to = Math.min(dataLayer.baseIndex, Math.ceil(range.to));
+  const to = timeScale.futureDates !== false ? Math.ceil(range.to) : Math.min(dataLayer.baseIndex, Math.ceil(range.to));
   if (to < from) return;
 
-  // Label roughly every ~80px to avoid crowding.
-  const stride = Math.max(1, Math.round(80 / Math.max(1, timeScale.barSpacing)));
   const yBase = Math.round(layout.plotHeight * dpr);
-
-  // Detect sub-minute (seconds / tick) timeframes from the visible data so the
-  // axis shows HH:MM:SS instead of collapsing same-minute bars to one label.
-  // Use the smallest positive gap between adjacent bars as the bar interval,
-  // and of those, one that crosses into another minute where there is one: a
-  // seconds chart crosses each minute a few seconds at a time, while elements
-  // a transform formed on one bar sit a second apart inside that bar's minute
-  // and say nothing about the chart's resolution.
-  let barIntervalSec = Number.POSITIVE_INFINITY;
-  {
-    let prev = dataLayer.indexToTime(from);
-    let within = Number.POSITIVE_INFINITY;
-    for (let i = from + 1; i <= to; i++) {
-      const t = dataLayer.indexToTime(i);
-      if (t !== undefined && prev !== undefined) {
-        const d = t - prev;
-        if (d > 0 && Math.floor(t / 60) !== Math.floor(prev / 60)) barIntervalSec = Math.min(barIntervalSec, d);
-        else if (d > 0) within = Math.min(within, d);
-      }
-      if (t !== undefined) prev = t;
-    }
-    if (!Number.isFinite(barIntervalSec)) barIntervalSec = within;
-  }
-  // Seconds resolution only helps when the labelled step itself is sub-minute.
+  const barIntervalSec = detectBarIntervalSec(dataLayer, from, to);
+  const stride = Math.max(1, Math.round(80 / Math.max(1, timeScale.barSpacing)));
   const labelStepSec = barIntervalSec * stride;
   const subMinute = Number.isFinite(labelStepSec) && labelStepSec < 60;
 
-  // The chart rejects an unknown zone where the caller set it, but this runs on
-  // every pan frame and a throw here would take the render loop down with it: a
-  // name that got past validation anyway (a hand-built render context, a saved
-  // layout from a richer ICU build) costs a wrong-zone axis, never the chart.
   const zone = timezone === undefined || timezone === DEFAULT_TIMEZONE || !isValidTimezone(timezone)
     ? DEFAULT_TIMEZONE
     : timezone;
-  // The default zone keeps the offset arithmetic it has always used. The two
-  // paths agree (pinned in tests/axis-timezone.test.ts), so this buys no answer
-  // the zoned path would not give; it buys that an existing chart's labels
-  // cannot move, and that they never depend on the host's ICU build.
   const defaultZone = zone === DEFAULT_TIMEZONE;
   const isNewDay = defaultZone
     ? isNewIstDayCount
@@ -419,89 +573,75 @@ export function drawTimeAxis(
   ctx.lineTo(Math.round(layout.plotWidth * dpr), yBase + 0.5);
   ctx.stroke();
 
-  // Where to put a label: the regular grid, plus the first bar of every new day.
-  //
-  // A day boundary does not land on the grid in general, and it is exactly the
-  // label a reader needs most. With a session that has just opened there may be
-  // only a handful of bars after it, so the next grid tick is past the right
-  // edge and the date is never drawn at all: the axis then shows today's bars
-  // sitting under yesterday's date, with nothing marking the change. Forcing a
-  // mark at the boundary is what a professional terminal does, and it is why one
-  // prints "Sep" between two hourly labels rather than on the hour.
-  const boundaries = new Set<number>();
-  {
-    let prev = dataLayer.indexToTime(from);
-    for (let i = from + 1; i <= to; i++) {
-      const t = dataLayer.indexToTime(i);
-      if (t === undefined) continue;
-      if (prev !== undefined && isNewDay(prev, t)) boundaries.add(i);
-      prev = t;
-    }
-  }
-  const marks = [...new Set([...gridIndices(from, to, stride), ...boundaries])]
-    .sort((a, b) => a - b);
+  const { marks, useHierarchical } = collectHierarchicalMarks(
+    dataLayer, from, to, timeScale.barSpacing, barIntervalSec, zone, defaultZone, isNewDay, subMinute, timeFormatter,
+  );
 
-  // Text is resolved in index order, because choosing between a date and a clock
-  // reading depends on the previous label, then placed in a second pass. The two
-  // cannot be one loop: a boundary has to be able to displace a grid tick drawn
-  // before it, and by then that tick is already on the canvas.
-  interface TimeLabel { x: number; text: string; half: number; boundary: boolean }
+  const sortedMarks = marks.sort((a, b) => a.index - b.index);
+
+  interface TimeLabel { x: number; text: string; half: number; priority: number }
   const placed: TimeLabel[] = [];
+  let prevBoundaryTime: number | undefined;
   let prevTime: number | undefined;
-  for (const i of marks) {
-    const time = dataLayer.indexToTime(i);
+
+  for (const m of sortedMarks) {
+    const time = timeForIndex(dataLayer, m.index);
     if (time === undefined) continue;
-    const x = Math.round(timeScale.indexToX(i) * dpr);
+    const x = Math.round(timeScale.indexToX(m.index) * dpr);
     if (x < 0 || x > layout.plotWidth * dpr) {
+      if (m.boundary) prevBoundaryTime = time;
       prevTime = time;
       continue;
     }
-    let label: string;
-    if (timeFormatter) {
-      const tm = prevTime === undefined
-        ? 'day'
-        : tickMarkBetween(prevTime, time, zone, subMinute);
-      label = timeFormatter(time, tm);
-    } else {
-      label = prevTime === undefined || isNewDay(prevTime, time)
-        ? dateLabel(time)
-        : subMinute
-          ? secondsLabel(time)
-          : timeLabel(time);
-    }
+
+    const text = formatAxisLabel(
+      time, m.boundary, prevBoundaryTime, prevTime, zone, defaultZone, subMinute, useHierarchical,
+      dateLabel, timeLabel, secondsLabel, timeFormatter,
+    );
+    if (m.boundary) prevBoundaryTime = time;
+    prevTime = time;
+
     placed.push({
       x,
-      text: label,
-      half: ctx.measureText(label).width / 2,
-      boundary: boundaries.has(i),
+      text,
+      half: ctx.measureText(text).width / 2,
+      priority: m.priority,
     });
-    prevTime = time;
   }
 
-  // Boundaries claim their space first, so a date always survives and the grid
-  // tick beside it yields. The other way round loses "Sep" to a 10:00 that its
-  // neighbours already imply, which is the whole point of forcing the mark.
+  // Priority-based collision resolution
   const gap = 4 * dpr;
   const taken: TimeLabel[] = [];
   const fits = (l: TimeLabel): boolean =>
     taken.every((t) => l.x + l.half + gap <= t.x - t.half || l.x - l.half - gap >= t.x + t.half);
-  // Boundaries still check each other: zoomed far out, two day changes can land
-  // within a label's width and would otherwise print through one another.
-  for (const l of placed) if (l.boundary && fits(l)) taken.push(l);
-  for (const l of placed) if (!l.boundary && fits(l)) taken.push(l);
 
-  // Resolved by priority, drawn left to right: the order labels are chosen in is
-  // not the order they belong on the axis.
+  if (!useHierarchical) {
+    for (const l of placed) if (l.priority === 100 && fits(l)) taken.push(l);
+    for (const l of placed) if (l.priority < 100 && fits(l)) taken.push(l);
+  } else {
+    const candidates = [...placed].sort((a, b) => b.priority - a.priority || a.x - b.x);
+    for (const l of candidates) {
+      if (fits(l)) taken.push(l);
+    }
+  }
+
   taken.sort((a, b) => a.x - b.x);
   for (const l of taken) ctx.fillText(l.text, l.x, yBase + 4 * dpr);
   ctx.restore();
 }
 
-/** Indices on the regular label grid. */
-function gridIndices(from: number, to: number, stride: number): number[] {
-  const out: number[] = [];
-  for (let i = from; i <= to; i += stride) out.push(i);
-  return out;
+
+/** Get time for an index, using exact bar time if in bounds or extrapolating past the last bar. */
+function timeForIndex(dataLayer: DataLayer, i: number): number | undefined {
+  if (dataLayer.length === 0) return undefined;
+  if (i >= 0 && i <= dataLayer.baseIndex) {
+    return dataLayer.indexToTime(i);
+  }
+  if (i > dataLayer.baseIndex) {
+    const t = dataLayer.indexToTimeFloat(i);
+    return Number.isFinite(t) ? Math.round(t) : undefined;
+  }
+  return undefined;
 }
 
 /** The last price's up and down fills, and the text written on them. */

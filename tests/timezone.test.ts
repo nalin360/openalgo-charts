@@ -301,7 +301,7 @@ function loadedPane(bars: Bar[], timezone?: string): { pane: Pane; ctx: PaneRend
   const dl = new DataLayer();
   const id = dl.createSeries();
   dl.setSeriesData(id, bars);
-  const ts = new TimeScale({ barSpacing: 40 });
+  const ts = new TimeScale({ barSpacing: 40, futureDates: false });
   ts.setWidth(544); // 600 wide pane less the 56px price axis
   ts.setBaseIndex(dl.baseIndex);
   const ctx: PaneRenderContext = {

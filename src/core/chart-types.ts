@@ -394,6 +394,7 @@ export interface ChartApplyOptions {
   statusLine?: LegendStatusLineOptions;
   legendIconSize?: number;
   priceScale?: Partial<PriceScaleOptions>;
+  timeScale?: Partial<TimeScaleOptions>;
   priceFormatter?: ((price: number) => string) | null;
   timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
   timezone?: string;

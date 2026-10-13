@@ -23,9 +23,6 @@
     "src/profile/market-profile-primitive.ts": {
       "MarketProfile._drawSession": 229
     },
-    "src/render/axis.ts": {
-      "drawTimeAxis": 155
-    },
     "src/widget/bottombar-shell.ts": {
       "wire": 156
     },

@@ -17,6 +17,11 @@ export interface TimeScaleOptions {
   maxBarSpacing: number;
   /** Empty bars of space kept to the right of the latest bar. */
   rightOffset: number;
+  /**
+   * Whether to show future dates and times on the horizontal X-axis past the latest bar.
+   * Default true.
+   */
+  futureDates?: boolean;
 }
 
 export const DEFAULT_TIME_SCALE_OPTIONS: TimeScaleOptions = {
@@ -24,13 +29,16 @@ export const DEFAULT_TIME_SCALE_OPTIONS: TimeScaleOptions = {
   minBarSpacing: 1,
   maxBarSpacing: 80,
   rightOffset: 4,
+  futureDates: true,
 };
 
 export class TimeScale {
   private _barSpacing: number;
   private _rightOffset: number;
-  private readonly _minBarSpacing: number;
-  private readonly _maxBarSpacing: number;
+  private _defaultRightOffset: number;
+  private _futureDates: boolean;
+  private _minBarSpacing: number;
+  private _maxBarSpacing: number;
   private _width = 0;
   private _baseIndex = 0;
 
@@ -38,6 +46,8 @@ export class TimeScale {
     const o = { ...DEFAULT_TIME_SCALE_OPTIONS, ...options };
     this._barSpacing = o.barSpacing;
     this._rightOffset = o.rightOffset;
+    this._defaultRightOffset = o.rightOffset;
+    this._futureDates = o.futureDates !== false;
     this._minBarSpacing = o.minBarSpacing;
     this._maxBarSpacing = o.maxBarSpacing;
   }
@@ -73,6 +83,33 @@ export class TimeScale {
     const before = this.visibleRange();
     this._rightOffset = value;
     this._notifyChange(before);
+  }
+
+  public get futureDates(): boolean {
+    return this._futureDates;
+  }
+
+  public setFutureDates(value: boolean): void {
+    const before = this.visibleRange();
+    this._futureDates = value;
+    this._notifyChange(before);
+  }
+
+  public applyOptions(options: Partial<TimeScaleOptions>): void {
+    const before = this.visibleRange();
+    if (options.minBarSpacing !== undefined) this._minBarSpacing = options.minBarSpacing;
+    if (options.maxBarSpacing !== undefined) this._maxBarSpacing = options.maxBarSpacing;
+    if (options.barSpacing !== undefined) this._barSpacing = this.constrainBarSpacing(options.barSpacing);
+    if (options.rightOffset !== undefined) {
+      this._rightOffset = options.rightOffset;
+      this._defaultRightOffset = options.rightOffset;
+    }
+    if (options.futureDates !== undefined) this._futureDates = options.futureDates;
+    this._notifyChange(before);
+  }
+
+  public setOptions(options: Partial<TimeScaleOptions>): void {
+    this.applyOptions(options);
   }
 
   /** Logical index of the latest bar; the right edge anchors to baseIndex+rightOffset. */
@@ -165,7 +202,7 @@ export class TimeScale {
     if (barCount <= 0 || this._width <= 0) return;
     const before = this.visibleRange();
     this._baseIndex = barCount - 1;
-    this._rightOffset = DEFAULT_TIME_SCALE_OPTIONS.rightOffset;
+    this._rightOffset = this._defaultRightOffset;
     const usable = this._width / (barCount + this._rightOffset);
     this._barSpacing = this.constrainBarSpacing(usable);
     this._notifyChange(before);
