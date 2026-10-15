@@ -48,8 +48,8 @@ export type { PriceRange, PriceScaleOptions, PriceScaleMode } from './scale/pric
 export { TimeScale, DEFAULT_TIME_SCALE_OPTIONS } from './scale/time-scale';
 export type { LogicalRange, TimeScaleOptions } from './scale/time-scale';
 export { niceTicks, precisionForStep } from './scale/ticks';
-// `AxisStyle` is what `resolveScaleStyle` returns, so it belongs with it.
-export type { TickMarkType, AxisStyle } from './render/axis';
+export { computeVisibleTimeMarks } from './render/axis';
+export type { TickMarkType, AxisStyle, VisibleTimeMark } from './render/axis';
 export type { PriceAxisSide, PriceAxisPlacement, PriceAxisSlot } from './model/price-axis-layout';
 
 // canvas option block (grid, crosshair, scales, margins). The resolvers are
@@ -57,7 +57,7 @@ export type { PriceAxisSide, PriceAxisPlacement, PriceAxisSlot } from './model/p
 export { dashPattern, resolveGridStyle, resolveScaleStyle, resolvePlotMargins, SCALE_FONT_MIN, SCALE_FONT_MAX } from './render/grid';
 export type {
   CanvasOptions, CanvasLineStyle, GridOptions, GridStyle, GridAxisStyle,
-  ScaleCanvasOptions, PlotMarginOptions,
+  ScaleCanvasOptions, PlotMarginOptions, CustomGridTicks,
 } from './render/grid';
 export { resolveCrosshairStyle } from './render/crosshair';
 export type { CrosshairOptions, CrosshairStyle } from './render/crosshair';

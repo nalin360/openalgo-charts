@@ -60,18 +60,48 @@ export interface GridOptions {
   lineWidth?: number;
 }
 
+export interface CustomGridTicks {
+  /** Optional vertical line x-positions in media (CSS) px (e.g. from time scale marks). */
+  verticals?: readonly number[] | undefined;
+  /** Optional horizontal line y-positions in media (CSS) px (e.g. from price scale ticks). */
+  horizontals?: readonly number[] | undefined;
+}
+
 /**
- * Pure: compute evenly-spaced grid line positions for a pane of the given
- * media size. Lines start one `spacing` in from the top-left and never sit on
- * the 0 edge (which the axis border owns). An axis switched off returns no
- * positions, so visibility costs the renderer nothing downstream.
+ * Pure: compute grid line positions for a pane of the given media size.
+ * When `customTicks` are provided (e.g. from timeScale / priceScale ticks),
+ * lines are placed at those positions, filtered to within (0, width/height).
+ * Otherwise, falls back to evenly-spaced lines using `opts.spacing`.
+ * Lines never sit on the 0 edge (which the axis border owns).
+ * An axis switched off returns no positions, so visibility costs the renderer nothing downstream.
  */
-export function computeGridLines(width: number, height: number, opts: GridOptions): GridLines {
+export function computeGridLines(
+  width: number,
+  height: number,
+  opts: GridOptions,
+  customTicks?: CustomGridTicks,
+): GridLines {
   const spacing = Math.max(1, opts.spacing);
   const verticals: number[] = [];
-  if (opts.vertLines !== false) for (let x = spacing; x < width; x += spacing) verticals.push(x);
+  if (opts.vertLines !== false) {
+    if (customTicks?.verticals && customTicks.verticals.length > 0) {
+      for (const x of customTicks.verticals) {
+        if (x > 0 && x < width) verticals.push(x);
+      }
+    } else {
+      for (let x = spacing; x < width; x += spacing) verticals.push(x);
+    }
+  }
   const horizontals: number[] = [];
-  if (opts.horzLines !== false) for (let y = spacing; y < height; y += spacing) horizontals.push(y);
+  if (opts.horzLines !== false) {
+    if (customTicks?.horizontals && customTicks.horizontals.length > 0) {
+      for (const y of customTicks.horizontals) {
+        if (y > 0 && y < height) horizontals.push(y);
+      }
+    } else {
+      for (let y = spacing; y < height; y += spacing) horizontals.push(y);
+    }
+  }
   return { verticals, horizontals };
 }
 

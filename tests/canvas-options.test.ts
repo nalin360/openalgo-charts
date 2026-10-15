@@ -34,6 +34,49 @@ describe('grid visibility flags', () => {
     expect(computeGridLines(200, 100, { spacing: 50, vertLines: true, horzLines: true }))
       .toEqual(computeGridLines(200, 100, { spacing: 50 }));
   });
+
+  it('uses custom vertical and horizontal ticks aligned with scales', () => {
+    const lines = computeGridLines(200, 100, { spacing: 50 }, {
+      verticals: [35, 75, 120, 180],
+      horizontals: [25, 60, 90],
+    });
+    expect(lines.verticals).toEqual([35, 75, 120, 180]);
+    expect(lines.horizontals).toEqual([25, 60, 90]);
+  });
+
+  it('filters out tick marks on or outside edges (0 and >= width/height)', () => {
+    const lines = computeGridLines(200, 100, { spacing: 50 }, {
+      verticals: [-10, 0, 50, 100, 200, 250],
+      horizontals: [0, 40, 80, 100, 120],
+    });
+    expect(lines.verticals).toEqual([50, 100]);
+    expect(lines.horizontals).toEqual([40, 80]);
+  });
+
+  it('respects vertLines: false and horzLines: false with custom ticks', () => {
+    const lines = computeGridLines(200, 100, { spacing: 50, vertLines: false }, {
+      verticals: [35, 75],
+      horizontals: [25, 60],
+    });
+    expect(lines.verticals).toEqual([]);
+    expect(lines.horizontals).toEqual([25, 60]);
+
+    const lines2 = computeGridLines(200, 100, { spacing: 50, horzLines: false }, {
+      verticals: [35, 75],
+      horizontals: [25, 60],
+    });
+    expect(lines2.verticals).toEqual([35, 75]);
+    expect(lines2.horizontals).toEqual([]);
+  });
+
+  it('falls back to spacing-based lines if custom tick arrays are empty or omitted', () => {
+    const lines = computeGridLines(200, 100, { spacing: 50 }, {
+      verticals: [],
+      horizontals: undefined,
+    });
+    expect(lines.verticals).toEqual([50, 100, 150]);
+    expect(lines.horizontals).toEqual([50]);
+  });
 });
 
 describe('grid style precedence', () => {

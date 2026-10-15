@@ -519,30 +519,38 @@ function formatAxisLabel(
   return subMinute ? secondsLabel(time) : timeLabel(time);
 }
 
+export interface VisibleTimeMark {
+  index: number;
+  time: number;
+  /** Horizontal position in media (CSS) px, matching `timeScale.indexToX`. */
+  x: number;
+  /** Horizontal position in device px, matching bitmap-scoped drawing. */
+  deviceX: number;
+  text: string;
+  boundary: boolean;
+  priority: number;
+}
+
 /**
- * Draw time tick labels along the bottom axis strip (bitmap scope).
- *
- * timezone is the IANA zone the labels read in; absent means the shipped
- * default. A custom timeFormatter still owns the label text, but it is handed
- * a tickMark hint computed on the same zone.
+ * Compute the visible, non-overlapping tick marks along the time axis.
+ * Used by both `drawTimeAxis` and pane vertical grid lines to ensure
+ * grid lines and time axis labels are strictly aligned.
  */
-export function drawTimeAxis(
-  ctx: CanvasRenderingContext2D,
+export function computeVisibleTimeMarks(
   timeScale: TimeScale,
   dataLayer: DataLayer,
-  layout: PlotLayout,
+  plotWidth: number,
   dpr: number,
-  style: AxisStyle = DEFAULT_AXIS_STYLE,
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string,
   timezone?: string,
-): void {
-  if (dataLayer.length === 0 || dataLayer.baseIndex < 0) return;
+  measureText?: (text: string) => number,
+): VisibleTimeMark[] {
+  if (dataLayer.length === 0 || dataLayer.baseIndex < 0) return [];
   const range = timeScale.visibleRange();
   const from = Math.max(0, Math.floor(range.from));
   const to = timeScale.futureDates !== false ? Math.ceil(range.to) : Math.min(dataLayer.baseIndex, Math.ceil(range.to));
-  if (to < from) return;
+  if (to < from) return [];
 
-  const yBase = Math.round(layout.plotHeight * dpr);
   const barIntervalSec = detectBarIntervalSec(dataLayer, from, to);
   const stride = Math.max(1, Math.round(80 / Math.max(1, timeScale.barSpacing)));
   const labelStepSec = barIntervalSec * stride;
@@ -561,34 +569,32 @@ export function drawTimeAxis(
     ? formatIstTimeSeconds
     : (t: number): string => formatZonedTimeSeconds(t, zone);
 
-  ctx.save();
-  ctx.fillStyle = style.textColor;
-  ctx.strokeStyle = style.lineColor;
-  ctx.font = scaleFont(style.font, dpr);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, yBase + 0.5);
-  ctx.lineTo(Math.round(layout.plotWidth * dpr), yBase + 0.5);
-  ctx.stroke();
-
   const { marks, useHierarchical } = collectHierarchicalMarks(
     dataLayer, from, to, timeScale.barSpacing, barIntervalSec, zone, defaultZone, isNewDay, subMinute, timeFormatter,
   );
 
   const sortedMarks = marks.sort((a, b) => a.index - b.index);
 
-  interface TimeLabel { x: number; text: string; half: number; priority: number }
-  const placed: TimeLabel[] = [];
+  interface TimeLabelCandidate {
+    index: number;
+    time: number;
+    x: number;
+    deviceX: number;
+    text: string;
+    half: number;
+    priority: number;
+    boundary: boolean;
+  }
+  const placed: TimeLabelCandidate[] = [];
   let prevBoundaryTime: number | undefined;
   let prevTime: number | undefined;
 
   for (const m of sortedMarks) {
     const time = timeForIndex(dataLayer, m.index);
     if (time === undefined) continue;
-    const x = Math.round(timeScale.indexToX(m.index) * dpr);
-    if (x < 0 || x > layout.plotWidth * dpr) {
+    const mediaX = timeScale.indexToX(m.index);
+    const deviceX = Math.round(mediaX * dpr);
+    if (deviceX < 0 || deviceX > plotWidth * dpr) {
       if (m.boundary) prevBoundaryTime = time;
       prevTime = time;
       continue;
@@ -601,32 +607,92 @@ export function drawTimeAxis(
     if (m.boundary) prevBoundaryTime = time;
     prevTime = time;
 
+    const width = measureText ? measureText(text) : text.length * 7 * dpr;
     placed.push({
-      x,
+      index: m.index,
+      time,
+      x: mediaX,
+      deviceX,
       text,
-      half: ctx.measureText(text).width / 2,
+      half: width / 2,
       priority: m.priority,
+      boundary: m.boundary,
     });
   }
 
   // Priority-based collision resolution
   const gap = 4 * dpr;
-  const taken: TimeLabel[] = [];
-  const fits = (l: TimeLabel): boolean =>
-    taken.every((t) => l.x + l.half + gap <= t.x - t.half || l.x - l.half - gap >= t.x + t.half);
+  const taken: TimeLabelCandidate[] = [];
+  const fits = (l: TimeLabelCandidate): boolean =>
+    taken.every((t) => l.deviceX + l.half + gap <= t.deviceX - t.half || l.deviceX - l.half - gap >= t.deviceX + t.half);
 
   if (!useHierarchical) {
     for (const l of placed) if (l.priority === 100 && fits(l)) taken.push(l);
     for (const l of placed) if (l.priority < 100 && fits(l)) taken.push(l);
   } else {
-    const candidates = [...placed].sort((a, b) => b.priority - a.priority || a.x - b.x);
+    const candidates = [...placed].sort((a, b) => b.priority - a.priority || a.deviceX - b.deviceX);
     for (const l of candidates) {
       if (fits(l)) taken.push(l);
     }
   }
 
-  taken.sort((a, b) => a.x - b.x);
-  for (const l of taken) ctx.fillText(l.text, l.x, yBase + 4 * dpr);
+  taken.sort((a, b) => a.deviceX - b.deviceX);
+  return taken.map((l) => ({
+    index: l.index,
+    time: l.time,
+    x: l.x,
+    deviceX: l.deviceX,
+    text: l.text,
+    boundary: l.boundary,
+    priority: l.priority,
+  }));
+}
+
+/**
+ * Draw time tick labels along the bottom axis strip (bitmap scope).
+ *
+ * timezone is the IANA zone the labels read in; absent means the shipped
+ * default. A custom timeFormatter still owns the label text, but it is handed
+ * a tickMark hint computed on the same zone.
+ */
+export function drawTimeAxis(
+  ctx: CanvasRenderingContext2D,
+  timeScale: TimeScale,
+  dataLayer: DataLayer,
+  layout: PlotLayout,
+  dpr: number,
+  style: AxisStyle = DEFAULT_AXIS_STYLE,
+  timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string,
+  timezone?: string,
+): void {
+  if (dataLayer.length === 0 || dataLayer.baseIndex < 0) return;
+  const yBase = Math.round(layout.plotHeight * dpr);
+
+  ctx.save();
+  ctx.fillStyle = style.textColor;
+  ctx.strokeStyle = style.lineColor;
+  ctx.font = scaleFont(style.font, dpr);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, yBase + 0.5);
+  ctx.lineTo(Math.round(layout.plotWidth * dpr), yBase + 0.5);
+  ctx.stroke();
+
+  const marks = computeVisibleTimeMarks(
+    timeScale,
+    dataLayer,
+    layout.plotWidth,
+    dpr,
+    timeFormatter,
+    timezone,
+    (text) => ctx.measureText(text).width,
+  );
+
+  for (const l of marks) {
+    ctx.fillText(l.text, l.deviceX, yBase + 4 * dpr);
+  }
   ctx.restore();
 }
 

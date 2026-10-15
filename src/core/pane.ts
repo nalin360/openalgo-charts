@@ -46,7 +46,7 @@ import { announcingHost, createHitBoxes, inHitBox } from '../render/hit-boxes';
 import {
   drawPriceAxis, drawTimeAxis, drawLastPriceLine, drawLastPriceTag, drawSessionClock,
   drawTimeAxisPill, lastPriceTagHeight, AXIS_LABEL_PRIORITY, resolveAxisLabels, drawSeriesValueTag,
-  axisTagY,
+  axisTagY, computeVisibleTimeMarks, priceTickCount, scaleFont,
   type PlotLayout, type TickMarkType, type AxisLabelBand,
   type SessionClockOptions, type BarCountdownOptions, type AxisStyle,
 } from '../render/axis';
@@ -1104,12 +1104,49 @@ export class Pane {
     // (setGridOptions is the long-standing switch); colour, dash, width and
     // spacing come from the canvas block, per axis.
     const gridOpts = ctx.canvasOptions?.grid;
-    const lines = computeGridLines(layout.plotWidth, layout.plotHeight, {
-      ...gridOpts,
-      spacing: gridOpts?.spacing ?? 60,
-      vertLines: ctx.showVertGrid && open,
-      horzLines: ctx.showHorzGrid && open,
-    });
+
+    let customVerticals: number[] | undefined;
+    let customHorizontals: number[] | undefined;
+
+    if (ctx.dataLayer.length > 0 && ctx.dataLayer.baseIndex >= 0) {
+      g.save();
+      g.font = scaleFont(axisStyle.font, dpr);
+      const timeMarks = computeVisibleTimeMarks(
+        ctx.timeScale,
+        ctx.dataLayer,
+        layout.plotWidth,
+        dpr,
+        ctx.timeFormatter,
+        ctx.timezone,
+        (text) => g.measureText(text).width,
+      );
+      g.restore();
+      customVerticals = timeMarks.map((m) => m.x);
+    }
+
+    const primaryScale = this._readoutScale();
+    if (primaryScale.scaled) {
+      const spacing = primaryScale.options.labelSpacing ?? 32;
+      const ticks = primaryScale.ticks(priceTickCount(layout.plotHeight, spacing));
+      customHorizontals = ticks
+        .map((p) => primaryScale.priceToY(p))
+        .filter((y) => y > 0 && y < layout.plotHeight);
+    }
+
+    const lines = computeGridLines(
+      layout.plotWidth,
+      layout.plotHeight,
+      {
+        ...gridOpts,
+        spacing: gridOpts?.spacing ?? 60,
+        vertLines: ctx.showVertGrid && open,
+        horzLines: ctx.showHorzGrid && open,
+      },
+      {
+        verticals: customVerticals,
+        horizontals: customHorizontals,
+      },
+    );
     if (lines.verticals.length > 0 || lines.horizontals.length > 0) {
       drawGrid(g, lines, layout.plotWidth, layout.plotHeight, dpr, resolveGridStyle(ctx.theme, gridOpts, dpr));
     }
