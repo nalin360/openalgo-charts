@@ -722,6 +722,10 @@ export class Pane {
     for (const p of this._primitives) p.detached?.();
     this._primitives.length = 0;
     this._backend.destroy();
+    // Zero the backing stores before the element leaves the document: a
+    // detached canvas otherwise holds its HiDPI surface until the GC runs.
+    this.base.destroy();
+    this.top.destroy();
     this.element.remove();
   }
 

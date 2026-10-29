@@ -184,4 +184,22 @@ export class CanvasLayer {
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.element.width, this.element.height);
   }
+
+  /**
+   * Release the backing store before the element is dropped.
+   *
+   * A detached `<canvas>` keeps its device-pixel bitmap until it is collected,
+   * and at a ratio of 2 a full-pane layer is several megabytes of compositor
+   * surface. A chart that is rebuilt on every interval / type / theme change
+   * therefore holds one surface per rebuild for as long as the GC takes to
+   * notice. Zeroing the buffer drops it at the moment the pane goes away.
+   */
+  public destroy(): void {
+    this.element.width = 0;
+    this.element.height = 0;
+    this._mediaWidth = 0;
+    this._mediaHeight = 0;
+    this._deviceWidth = 0;
+    this._deviceHeight = 0;
+  }
 }

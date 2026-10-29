@@ -2,6 +2,17 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.7
+
+2026-10-29
+
+Released surfaces. `Pane.destroy()` now zeroes both canvas backing stores
+before removing the element, so a chart torn down and rebuilt (timeframe,
+chart type, theme) releases its HiDPI compositor surface immediately instead
+of leaving it for the garbage collector. `CanvasLayer.destroy()` is the new
+hook. A host that swaps chart instances repeatedly no longer grows the
+browser's parent-process memory with every rebuild.
+
 ## 2.6.0
 
 2026-10-01
